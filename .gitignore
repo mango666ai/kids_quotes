@@ -1,3 +1,7 @@
+# macOS metadata files (created on external/FAT drives)
+._*
+.DS_Store
+
 # Miscellaneous
 *.class
 *.lock

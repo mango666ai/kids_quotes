@@ -33,6 +33,7 @@ class _ConversationEditScreenState extends State<ConversationEditScreen> {
   List<DialogueTurn> _turns = [];
   List<Role> _roles = [];
   Role? _currentRole;
+  bool _isInnerThought = false;
 
   bool get _isEditing => widget.editing != null;
 
@@ -82,7 +83,6 @@ class _ConversationEditScreenState extends State<ConversationEditScreen> {
   Future<void> _switchRole() async {
     final picked = await showRolePickerSheet(context, roles: _roles);
     if (picked == null) return;
-    // If new role (not in db yet), persist it
     if (picked.id == null) {
       await _db.upsertRole(picked);
       await _loadRoles();
@@ -102,6 +102,7 @@ class _ConversationEditScreenState extends State<ConversationEditScreen> {
       role: _currentRole!.name,
       emoji: _currentRole!.emoji,
       content: text,
+      isInnerThought: _isInnerThought,
     );
     setState(() => _turns.add(turn));
     _inputCtrl.clear();
@@ -113,12 +114,9 @@ class _ConversationEditScreenState extends State<ConversationEditScreen> {
           distinctRoles.firstWhere((r) => r != _currentRole!.name);
       final otherRole = _roles.firstWhere((r) => r.name == other,
           orElse: () => Role(name: other, emoji: '👤'));
-      setState(() {
-        _currentRole = otherRole;
-      });
+      setState(() => _currentRole = otherRole);
     }
 
-    // Scroll to bottom
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) {
         _scrollCtrl.animateTo(
@@ -138,6 +136,75 @@ class _ConversationEditScreenState extends State<ConversationEditScreen> {
     final all = await _db.getAllRoles();
     final saved = all.firstWhere((r) => r.name == newRole.name);
     setState(() => _currentRole = saved);
+  }
+
+  Future<void> _editTurn(int index) async {
+    final turn = _turns[index];
+    final ctrl = TextEditingController(text: turn.content);
+    bool innerThought = turn.isInnerThought;
+
+    final result = await showDialog<DialogueTurn>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          title: Text('编辑 ${turn.emoji} ${turn.role}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: '内容',
+                ),
+                maxLines: 5,
+                minLines: 2,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Switch(
+                    value: innerThought,
+                    onChanged: (v) => setS(() => innerThought = v),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    innerThought ? '💭 心里想的' : '🗣️ 说出的话',
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消')),
+            FilledButton(
+              onPressed: () {
+                final text = ctrl.text.trim();
+                if (text.isEmpty) return;
+                Navigator.pop(
+                  ctx,
+                  DialogueTurn(
+                    role: turn.role,
+                    emoji: turn.emoji,
+                    content: text,
+                    isInnerThought: innerThought,
+                  ),
+                );
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+    ctrl.dispose();
+    if (result != null) {
+      setState(() => _turns[index] = result);
+    }
   }
 
   Future<void> _save() async {
@@ -168,8 +235,7 @@ class _ConversationEditScreenState extends State<ConversationEditScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final dateText =
-        DateFormat('yyyy-MM-dd').format(_occurredAt);
+    final dateText = DateFormat('yyyy-MM-dd').format(_occurredAt);
 
     return Scaffold(
       backgroundColor: cs.surfaceContainerLowest,
@@ -232,7 +298,6 @@ class _ConversationEditScreenState extends State<ConversationEditScreen> {
                         size: 18, color: cs.onSurfaceVariant),
                     filled: true,
                     fillColor: cs.surfaceContainerHighest,
-                    // 显式覆盖所有 border，防止全局主题污染
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -287,8 +352,12 @@ class _ConversationEditScreenState extends State<ConversationEditScreen> {
                           '${r.emoji} ${r.name}',
                           style: TextStyle(
                             fontSize: 13,
-                            color: selected ? cs.onPrimaryContainer : cs.onSurface,
-                            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                            color: selected
+                                ? cs.onPrimaryContainer
+                                : cs.onSurface,
+                            fontWeight: selected
+                                ? FontWeight.w600
+                                : FontWeight.normal,
                           ),
                         ),
                       ),
@@ -331,8 +400,8 @@ class _ConversationEditScreenState extends State<ConversationEditScreen> {
                 ? Center(
                     child: Text(
                       '孩子说了什么有趣的话？',
-                      style:
-                          TextStyle(color: cs.onSurfaceVariant, fontSize: 15),
+                      style: TextStyle(
+                          color: cs.onSurfaceVariant, fontSize: 15),
                     ),
                   )
                 : ListView.builder(
@@ -354,9 +423,10 @@ class _ConversationEditScreenState extends State<ConversationEditScreen> {
   Widget _buildBubble(BuildContext ctx, int i) {
     final turn = _turns[i];
     final cs = Theme.of(ctx).colorScheme;
+    final isThought = turn.isInnerThought;
 
     return Dismissible(
-      key: ValueKey('$i-${turn.content}'),
+      key: ValueKey('$i-${turn.content}-${turn.isInnerThought}'),
       direction: DismissDirection.endToStart,
       background: Container(
         alignment: Alignment.centerRight,
@@ -364,46 +434,78 @@ class _ConversationEditScreenState extends State<ConversationEditScreen> {
         child: const Icon(Icons.delete_outline, color: Colors.red),
       ),
       onDismissed: (_) => setState(() => _turns.removeAt(i)),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 5),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(turn.emoji, style: const TextStyle(fontSize: 22)),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    turn.role,
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: cs.onSurfaceVariant,
-                        fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 3),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: cs.surfaceContainerHighest,
-                      borderRadius: const BorderRadius.only(
-                        topRight: Radius.circular(16),
-                        bottomLeft: Radius.circular(16),
-                        bottomRight: Radius.circular(16),
+      child: GestureDetector(
+        onTap: () => _editTurn(i),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(turn.emoji, style: const TextStyle(fontSize: 22)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          turn.role,
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: cs.onSurfaceVariant,
+                              fontWeight: FontWeight.w600),
+                        ),
+                        if (isThought) ...[
+                          const SizedBox(width: 4),
+                          Text(
+                            '💭 心里想的',
+                            style: TextStyle(
+                                fontSize: 10,
+                                color: cs.onSurfaceVariant.withOpacity(0.7)),
+                          ),
+                        ],
+                        const Spacer(),
+                        Icon(Icons.edit_outlined,
+                            size: 12, color: cs.onSurfaceVariant.withOpacity(0.5)),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isThought
+                            ? cs.tertiaryContainer.withOpacity(0.6)
+                            : cs.surfaceContainerHighest,
+                        borderRadius: const BorderRadius.only(
+                          topRight: Radius.circular(16),
+                          bottomLeft: Radius.circular(16),
+                          bottomRight: Radius.circular(16),
+                        ),
+                        border: isThought
+                            ? Border.all(
+                                color: cs.tertiary.withOpacity(0.4),
+                                style: BorderStyle.solid,
+                              )
+                            : null,
+                      ),
+                      child: Text(
+                        turn.content,
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: cs.onSurface,
+                          fontStyle: isThought
+                              ? FontStyle.italic
+                              : FontStyle.normal,
+                        ),
                       ),
                     ),
-                    child: Text(
-                      turn.content,
-                      style:
-                          TextStyle(fontSize: 15, color: cs.onSurface),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -419,72 +521,127 @@ class _ConversationEditScreenState extends State<ConversationEditScreen> {
               top: BorderSide(
                   color: cs.outlineVariant.withOpacity(0.5))),
         ),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Role selector button
+            // Inner thought toggle
             GestureDetector(
-              onTap: _switchRole,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 6),
+              onTap: () => setState(() => _isInnerThought = !_isInnerThought),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: cs.primaryContainer,
+                  color: _isInnerThought
+                      ? cs.tertiaryContainer
+                      : cs.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(20),
+                  border: _isInnerThought
+                      ? Border.all(
+                          color: cs.tertiary.withOpacity(0.6), width: 1)
+                      : null,
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      _currentRole != null
-                          ? '${_currentRole!.emoji} ${_currentRole!.name}'
-                          : '+ 选角色',
+                      _isInnerThought ? '💭 心里想的' : '🗣️ 说出的话',
                       style: TextStyle(
-                          fontSize: 13,
-                          color: cs.onPrimaryContainer,
-                          fontWeight: FontWeight.w500),
+                        fontSize: 12,
+                        color: _isInnerThought
+                            ? cs.onTertiaryContainer
+                            : cs.onSurfaceVariant,
+                      ),
                     ),
-                    const SizedBox(width: 2),
-                    Icon(Icons.arrow_drop_down,
-                        size: 16, color: cs.onPrimaryContainer),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.swap_horiz_rounded,
+                      size: 14,
+                      color: _isInnerThought
+                          ? cs.onTertiaryContainer
+                          : cs.onSurfaceVariant,
+                    ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            // Text input
-            Expanded(
-              child: TextField(
-                controller: _inputCtrl,
-                decoration: InputDecoration(
-                  hintText: '说了什么…',
-                  hintStyle:
-                      TextStyle(color: cs.onSurfaceVariant, fontSize: 15),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    borderSide: BorderSide.none,
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                // Role selector button
+                GestureDetector(
+                  onTap: _switchRole,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: cs.primaryContainer,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _currentRole != null
+                              ? '${_currentRole!.emoji} ${_currentRole!.name}'
+                              : '+ 选角色',
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: cs.onPrimaryContainer,
+                              fontWeight: FontWeight.w500),
+                        ),
+                        const SizedBox(width: 2),
+                        Icon(Icons.arrow_drop_down,
+                            size: 16, color: cs.onPrimaryContainer),
+                      ],
+                    ),
                   ),
-                  filled: true,
-                  fillColor: cs.surfaceContainerHighest,
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
-                  isDense: true,
                 ),
-                style: const TextStyle(fontSize: 15),
-                maxLines: 4,
-                minLines: 1,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _sendTurn(),
-              ),
-            ),
-            const SizedBox(width: 8),
-            // Send button
-            IconButton.filled(
-              onPressed: _sendTurn,
-              icon: const Icon(Icons.send_rounded),
-              style: IconButton.styleFrom(
-                backgroundColor: cs.primary,
-                foregroundColor: cs.onPrimary,
-              ),
+                const SizedBox(width: 8),
+                // Text input
+                Expanded(
+                  child: TextField(
+                    controller: _inputCtrl,
+                    decoration: InputDecoration(
+                      hintText:
+                          _isInnerThought ? '心里想的是…' : '说了什么…',
+                      hintStyle: TextStyle(
+                          color: cs.onSurfaceVariant, fontSize: 15),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: _isInnerThought
+                          ? cs.tertiaryContainer.withOpacity(0.4)
+                          : cs.surfaceContainerHighest,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
+                      isDense: true,
+                    ),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontStyle: _isInnerThought
+                          ? FontStyle.italic
+                          : FontStyle.normal,
+                    ),
+                    maxLines: 4,
+                    minLines: 1,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _sendTurn(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Send button
+                IconButton.filled(
+                  onPressed: _sendTurn,
+                  icon: const Icon(Icons.send_rounded),
+                  style: IconButton.styleFrom(
+                    backgroundColor: cs.primary,
+                    foregroundColor: cs.onPrimary,
+                  ),
+                ),
+              ],
             ),
           ],
         ),

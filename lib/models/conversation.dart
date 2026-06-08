@@ -2,11 +2,13 @@ class DialogueTurn {
   final String role;
   final String emoji;
   final String content;
+  final bool isInnerThought;
 
   const DialogueTurn({
     required this.role,
     required this.emoji,
     required this.content,
+    this.isInnerThought = false,
   });
 
   Map<String, dynamic> toMap(int conversationId, int order) => {
@@ -15,12 +17,14 @@ class DialogueTurn {
         'role_emoji': emoji,
         'content': content,
         'order_index': order,
+        'is_inner_thought': isInnerThought ? 1 : 0,
       };
 
   factory DialogueTurn.fromMap(Map<String, dynamic> m) => DialogueTurn(
         role: m['role_name'] as String,
         emoji: (m['role_emoji'] as String?) ?? '👤',
         content: m['content'] as String,
+        isInnerThought: (m['is_inner_thought'] as int? ?? 0) == 1,
       );
 }
 

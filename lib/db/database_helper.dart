@@ -16,8 +16,9 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dbPath, 'kids_quotes.db'),
-      version: 1,
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
     return _db!;
   }
@@ -49,6 +50,7 @@ class DatabaseHelper {
         role_emoji TEXT,
         content TEXT NOT NULL,
         order_index INTEGER NOT NULL,
+        is_inner_thought INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
       )
     ''');
@@ -59,6 +61,13 @@ class DatabaseHelper {
         emoji TEXT NOT NULL
       )
     ''');
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute(
+          'ALTER TABLE turns ADD COLUMN is_inner_thought INTEGER NOT NULL DEFAULT 0');
+    }
   }
 
   // ===== BabyProfile =====

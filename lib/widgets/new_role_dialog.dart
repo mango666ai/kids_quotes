@@ -2,10 +2,23 @@ import 'package:flutter/material.dart';
 
 import '../models/role.dart';
 
-// 全部使用单码点 emoji，避免肤色修饰符导致的渲染问题
-const List<String> kPresetEmojis = [
-  '👶🏻', '👧🏻', '👦🏻', '🧒🏻', '👩🏻', '👨🏻', '👵🏻', '👴🏻',
-  '🐶', '🐱', '🦊', '🐼', '🌟', '🌈', '🍀', '🎀',
+const List<({String label, List<String> emojis})> kEmojiCategories = [
+  (
+    label: '宝宝',
+    emojis: ['👶', '🧒', '👦', '👧', '🧑', '👼', '🍼', '🎠'],
+  ),
+  (
+    label: '家人',
+    emojis: ['👩', '👨', '👵', '👴', '🤱', '🫂', '💑', '👨‍👩‍👦'],
+  ),
+  (
+    label: '动物',
+    emojis: ['🐶', '🐱', '🐰', '🐼', '🦊', '🦁', '🐨', '🐸'],
+  ),
+  (
+    label: '可爱',
+    emojis: ['🌟', '⭐', '🌈', '🎀', '🍀', '🌸', '🎈', '💫'],
+  ),
 ];
 
 Future<Role?> showNewRoleDialog(BuildContext context, {Role? editing}) {
@@ -25,19 +38,29 @@ class _NewRoleDialog extends StatefulWidget {
 
 class _NewRoleDialogState extends State<_NewRoleDialog> {
   late final TextEditingController _name;
+  late final TextEditingController _customEmoji;
   late String _emoji;
 
   @override
   void initState() {
     super.initState();
+    _emoji = widget.editing?.emoji ?? kEmojiCategories.first.emojis.first;
     _name = TextEditingController(text: widget.editing?.name ?? '');
-    _emoji = widget.editing?.emoji ?? kPresetEmojis.first;
+    _customEmoji = TextEditingController();
   }
 
   @override
   void dispose() {
     _name.dispose();
+    _customEmoji.dispose();
     super.dispose();
+  }
+
+  void _selectEmoji(String e) {
+    setState(() {
+      _emoji = e;
+      _customEmoji.clear();
+    });
   }
 
   @override
@@ -54,38 +77,89 @@ class _NewRoleDialogState extends State<_NewRoleDialog> {
               controller: _name,
               autofocus: true,
               decoration: const InputDecoration(
-                labelText: '角色名（如：tuant、妈妈）',
+                labelText: '角色名（如：宝宝、妈妈）',
                 border: OutlineInputBorder(),
               ),
               maxLength: 12,
             ),
             const SizedBox(height: 12),
-            const Text('选择头像：'),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: kPresetEmojis.map((e) {
-                final selected = e == _emoji;
-                return GestureDetector(
-                  onTap: () => setState(() => _emoji = e),
-                  child: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? cs.primaryContainer
-                          : cs.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(10),
-                      border: selected
-                          ? Border.all(color: cs.primary, width: 2)
-                          : null,
+            Text(
+              '当前头像：$_emoji',
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 10),
+            // Categories
+            ...kEmojiCategories.map((cat) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      cat.label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    alignment: Alignment.center,
-                    child: Text(e, style: const TextStyle(fontSize: 22)),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: cat.emojis.map((e) {
+                        final selected = e == _emoji;
+                        return GestureDetector(
+                          onTap: () => _selectEmoji(e),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? cs.primaryContainer
+                                  : cs.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(10),
+                              border: selected
+                                  ? Border.all(color: cs.primary, width: 2)
+                                  : null,
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(e,
+                                style: const TextStyle(fontSize: 20)),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                )),
+            // Custom emoji input
+            Row(
+              children: [
+                Text(
+                  '自定义：',
+                  style: TextStyle(
+                      fontSize: 13, color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 72,
+                  child: TextField(
+                    controller: _customEmoji,
+                    decoration: InputDecoration(
+                      hintText: '输入emoji',
+                      hintStyle: TextStyle(
+                          fontSize: 12, color: cs.onSurfaceVariant),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 6),
+                      isDense: true,
+                    ),
+                    style: const TextStyle(fontSize: 20),
+                    onChanged: (v) {
+                      if (v.isNotEmpty) setState(() => _emoji = v.trim());
+                    },
                   ),
-                );
-              }).toList(),
+                ),
+              ],
             ),
           ],
         ),

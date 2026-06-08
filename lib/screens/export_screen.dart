@@ -20,6 +20,8 @@ class _ExportScreenState extends State<ExportScreen> {
   final _boundaryKey = GlobalKey();
   int _themeIndex = 0;
   bool _sharing = false;
+  bool _showDate = true;
+  bool _showBackground = true;
 
   Future<void> _share() async {
     if (_sharing) return;
@@ -61,20 +63,33 @@ class _ExportScreenState extends State<ExportScreen> {
       ),
       body: Column(
         children: [
-          // Card preview (scrollable in case it's tall)
+          // Card preview
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 24, vertical: 20),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               child: Center(
                 child: ExportCard(
                   boundaryKey: _boundaryKey,
                   conv: widget.conv,
                   profile: widget.profile,
                   theme: theme,
+                  showDate: _showDate,
+                  showBackground: _showBackground,
                 ),
               ),
             ),
+          ),
+
+          // Options row
+          _OptionsBar(
+            showDate: _showDate,
+            showBackground: _showBackground,
+            hasBackground: widget.conv.background != null &&
+                widget.conv.background!.isNotEmpty,
+            onToggleDate: () => setState(() => _showDate = !_showDate),
+            onToggleBackground: () =>
+                setState(() => _showBackground = !_showBackground),
           ),
 
           // Theme picker
@@ -108,6 +123,112 @@ class _ExportScreenState extends State<ExportScreen> {
   }
 }
 
+class _OptionsBar extends StatelessWidget {
+  final bool showDate;
+  final bool showBackground;
+  final bool hasBackground;
+  final VoidCallback onToggleDate;
+  final VoidCallback onToggleBackground;
+
+  const _OptionsBar({
+    required this.showDate,
+    required this.showBackground,
+    required this.hasBackground,
+    required this.onToggleDate,
+    required this.onToggleBackground,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        border: Border(
+          top: BorderSide(color: cs.outlineVariant.withOpacity(0.4)),
+        ),
+      ),
+      child: Row(
+        children: [
+          Text(
+            '显示内容：',
+            style: TextStyle(
+                fontSize: 13,
+                color: cs.onSurfaceVariant,
+                fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(width: 8),
+          _ToggleChip(
+            label: '日期',
+            active: showDate,
+            onTap: onToggleDate,
+          ),
+          const SizedBox(width: 8),
+          if (hasBackground)
+            _ToggleChip(
+              label: '场景',
+              active: showBackground,
+              onTap: onToggleBackground,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ToggleChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _ToggleChip({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? cs.primaryContainer : cs.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(20),
+          border: active
+              ? Border.all(color: cs.primary, width: 1.2)
+              : Border.all(color: cs.outline.withOpacity(0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              active ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+              size: 14,
+              color: active ? cs.primary : cs.onSurfaceVariant,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                color: active ? cs.onPrimaryContainer : cs.onSurfaceVariant,
+                fontWeight:
+                    active ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ThemePicker extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelect;
@@ -116,72 +237,74 @@ class _ThemePicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: cs.surface,
         border: Border(
-          top: BorderSide(
-              color: Theme.of(context)
-                  .colorScheme
-                  .outlineVariant
-                  .withOpacity(0.4)),
+          top: BorderSide(color: cs.outlineVariant.withOpacity(0.4)),
         ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: List.generate(themes.kCardThemes.length, (i) {
-          final t = themes.kCardThemes[i];
-          final selected = i == selectedIndex;
-          return GestureDetector(
-            onTap: () => onSelect(i),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: t.gradient,
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+      child: SizedBox(
+        height: 72,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          itemCount: themes.kCardThemes.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 12),
+          itemBuilder: (ctx, i) {
+            final t = themes.kCardThemes[i];
+            final selected = i == selectedIndex;
+            return GestureDetector(
+              onTap: () => onSelect(i),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: t.gradient,
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      shape: BoxShape.circle,
+                      border: selected
+                          ? Border.all(color: cs.primary, width: 2.5)
+                          : Border.all(
+                              color: Colors.transparent, width: 2.5),
+                      boxShadow: selected
+                          ? [
+                              BoxShadow(
+                                color: t.gradient.last.withOpacity(0.4),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              )
+                            ]
+                          : null,
                     ),
-                    shape: BoxShape.circle,
-                    border: selected
-                        ? Border.all(
-                            color: Theme.of(context).colorScheme.primary,
-                            width: 2.5,
-                          )
-                        : Border.all(color: Colors.transparent, width: 2.5),
-                    boxShadow: selected
-                        ? [
-                            BoxShadow(
-                              color: t.gradient.last.withOpacity(0.4),
-                              blurRadius: 8,
-                              offset: const Offset(0, 3),
-                            )
-                          ]
-                        : null,
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  t.name,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight:
-                        selected ? FontWeight.w600 : FontWeight.normal,
-                    color: selected
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                  const SizedBox(height: 4),
+                  Text(
+                    t.name,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: selected
+                          ? FontWeight.w600
+                          : FontWeight.normal,
+                      color: selected
+                          ? cs.primary
+                          : cs.onSurfaceVariant,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          );
-        }),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
