@@ -17,17 +17,32 @@ class ExportScreen extends StatefulWidget {
 }
 
 class _ExportScreenState extends State<ExportScreen> {
-  final _boundaryKey = GlobalKey();
   int _themeIndex = 0;
   bool _sharing = false;
   bool _showDate = true;
   bool _showBackground = true;
 
+  // Pages: computed once and rebuilt when options change
+  late List<List<DialogueTurn>> _pages;
+  late List<GlobalKey> _boundaryKeys;
+
+  @override
+  void initState() {
+    super.initState();
+    _rebuildPages();
+  }
+
+  void _rebuildPages() {
+    _pages = paginateTurns(widget.conv.turns);
+    _boundaryKeys =
+        List.generate(_pages.length, (_) => GlobalKey());
+  }
+
   Future<void> _share() async {
     if (_sharing) return;
     setState(() => _sharing = true);
     try {
-      await exportAndShare(_boundaryKey);
+      await exportAndShare(_boundaryKeys);
     } finally {
       if (mounted) setState(() => _sharing = false);
     }
@@ -37,12 +52,15 @@ class _ExportScreenState extends State<ExportScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final theme = themes.kCardThemes[_themeIndex];
+    final totalPages = _pages.length;
 
     return Scaffold(
       backgroundColor: cs.surfaceContainerLowest,
       appBar: AppBar(
         backgroundColor: cs.surfaceContainerLowest,
-        title: const Text('导出分享'),
+        title: Text(totalPages > 1
+            ? '导出分享（共 $totalPages 张）'
+            : '导出分享'),
         actions: [
           if (_sharing)
             const Padding(
@@ -63,15 +81,20 @@ class _ExportScreenState extends State<ExportScreen> {
       ),
       body: Column(
         children: [
-          // Card preview
+          // ── Card preview (all pages stacked, scrollable) ────────────
           Expanded(
-            child: SingleChildScrollView(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              child: Center(
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 24, vertical: 20),
+              itemCount: totalPages,
+              separatorBuilder: (_, __) => const SizedBox(height: 16),
+              itemBuilder: (ctx, i) => Center(
                 child: ExportCard(
-                  boundaryKey: _boundaryKey,
+                  boundaryKey: _boundaryKeys[i],
                   conv: widget.conv,
+                  pageTurns: _pages[i],
+                  pageIndex: i,
+                  totalPages: totalPages,
                   profile: widget.profile,
                   theme: theme,
                   showDate: _showDate,
@@ -81,7 +104,7 @@ class _ExportScreenState extends State<ExportScreen> {
             ),
           ),
 
-          // Options row
+          // ── Options row ─────────────────────────────────────────────
           _OptionsBar(
             showDate: _showDate,
             showBackground: _showBackground,
@@ -92,13 +115,13 @@ class _ExportScreenState extends State<ExportScreen> {
                 setState(() => _showBackground = !_showBackground),
           ),
 
-          // Theme picker
+          // ── Theme picker ─────────────────────────────────────────────
           _ThemePicker(
             selectedIndex: _themeIndex,
             onSelect: (i) => setState(() => _themeIndex = i),
           ),
 
-          // Share button
+          // ── Share button ─────────────────────────────────────────────
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
@@ -107,7 +130,9 @@ class _ExportScreenState extends State<ExportScreen> {
                 child: FilledButton.icon(
                   onPressed: _sharing ? null : _share,
                   icon: const Icon(Icons.ios_share_rounded),
-                  label: const Text('保存 / 分享'),
+                  label: Text(totalPages > 1
+                      ? '保存 / 分享（$totalPages 张）'
+                      : '保存 / 分享'),
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     textStyle: const TextStyle(
@@ -122,6 +147,8 @@ class _ExportScreenState extends State<ExportScreen> {
     );
   }
 }
+
+// ─── Options bar ────────────────────────────────────────────────────────────
 
 class _OptionsBar extends StatelessWidget {
   final bool showDate;
@@ -142,12 +169,13 @@ class _OptionsBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: cs.surface,
         border: Border(
-          top: BorderSide(color: cs.outlineVariant.withOpacity(0.4)),
-        ),
+            top: BorderSide(
+                color: cs.outlineVariant.withOpacity(0.4))),
       ),
       child: Row(
         children: [
@@ -160,17 +188,15 @@ class _OptionsBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           _ToggleChip(
-            label: '日期',
-            active: showDate,
-            onTap: onToggleDate,
-          ),
+              label: '日期',
+              active: showDate,
+              onTap: onToggleDate),
           const SizedBox(width: 8),
           if (hasBackground)
             _ToggleChip(
-              label: '场景',
-              active: showBackground,
-              onTap: onToggleBackground,
-            ),
+                label: '场景',
+                active: showBackground,
+                onTap: onToggleBackground),
         ],
       ),
     );
@@ -181,12 +207,10 @@ class _ToggleChip extends StatelessWidget {
   final String label;
   final bool active;
   final VoidCallback onTap;
-
-  const _ToggleChip({
-    required this.label,
-    required this.active,
-    required this.onTap,
-  });
+  const _ToggleChip(
+      {required this.label,
+      required this.active,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -198,17 +222,22 @@ class _ToggleChip extends StatelessWidget {
         padding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: active ? cs.primaryContainer : cs.surfaceContainerHighest,
+          color: active
+              ? cs.primaryContainer
+              : cs.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(20),
           border: active
               ? Border.all(color: cs.primary, width: 1.2)
-              : Border.all(color: cs.outline.withOpacity(0.3)),
+              : Border.all(
+                  color: cs.outline.withOpacity(0.3)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              active ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+              active
+                  ? Icons.check_circle_rounded
+                  : Icons.radio_button_unchecked,
               size: 14,
               color: active ? cs.primary : cs.onSurfaceVariant,
             ),
@@ -217,9 +246,12 @@ class _ToggleChip extends StatelessWidget {
               label,
               style: TextStyle(
                 fontSize: 13,
-                color: active ? cs.onPrimaryContainer : cs.onSurfaceVariant,
-                fontWeight:
-                    active ? FontWeight.w600 : FontWeight.normal,
+                color: active
+                    ? cs.onPrimaryContainer
+                    : cs.onSurfaceVariant,
+                fontWeight: active
+                    ? FontWeight.w600
+                    : FontWeight.normal,
               ),
             ),
           ],
@@ -229,11 +261,13 @@ class _ToggleChip extends StatelessWidget {
   }
 }
 
+// ─── Theme picker ────────────────────────────────────────────────────────────
+
 class _ThemePicker extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelect;
-
-  const _ThemePicker({required this.selectedIndex, required this.onSelect});
+  const _ThemePicker(
+      {required this.selectedIndex, required this.onSelect});
 
   @override
   Widget build(BuildContext context) {
@@ -243,8 +277,8 @@ class _ThemePicker extends StatelessWidget {
       decoration: BoxDecoration(
         color: cs.surface,
         border: Border(
-          top: BorderSide(color: cs.outlineVariant.withOpacity(0.4)),
-        ),
+            top: BorderSide(
+                color: cs.outlineVariant.withOpacity(0.4))),
       ),
       child: SizedBox(
         height: 72,
@@ -273,13 +307,16 @@ class _ThemePicker extends StatelessWidget {
                       ),
                       shape: BoxShape.circle,
                       border: selected
-                          ? Border.all(color: cs.primary, width: 2.5)
+                          ? Border.all(
+                              color: cs.primary, width: 2.5)
                           : Border.all(
-                              color: Colors.transparent, width: 2.5),
+                              color: Colors.transparent,
+                              width: 2.5),
                       boxShadow: selected
                           ? [
                               BoxShadow(
-                                color: t.gradient.last.withOpacity(0.4),
+                                color: t.gradient.last
+                                    .withOpacity(0.4),
                                 blurRadius: 8,
                                 offset: const Offset(0, 3),
                               )
